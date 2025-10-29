@@ -27,7 +27,7 @@ Swap `/usr/local/bin` for any directory already in your `$PATH`.
 - `designbench all` runs both benchmarks sequentially and aggregates the results into one summary.
 - `designbench preflight` inspects the current project and any booted devices to suggest ready-to-run commands.
 
-All commands share `--component` to label the run, `--output` (optional) to override the JSON report name, `--reports-dir` (default `reports/`) to control where files land, and `--timeout` to bound execution. When `--output` is omitted the CLI writes reports like `reports/<component>-<platform>.json`.
+All commands share `--component` to label the run, `--output` (optional) to override the JSON report name, `--reports-dir` (default `designbench-reports/`) to control where files land, and `--timeout` to bound execution. When `--output` is omitted the CLI writes reports like `designbench-reports/<component>-<platform>.json`.
 
 ## Android usage
 
@@ -39,7 +39,7 @@ go run ./cmd/designbench android \
   --device emulator-5554
 ```
 
-By default the report lands at `reports/screenx-android.json`; pass `--output <name>.json` to override. The JSON records the exact `designbench` command alongside device metrics for auditing.
+By default the report lands at `designbench-reports/screenx-android.json`; pass `--output <name>.json` to override. The JSON records the exact `designbench` command alongside device metrics for auditing.
 
 ```
 Component: ScreenX
@@ -69,7 +69,7 @@ go run ./cmd/designbench all \
   --ios-device <simulator-udid>
 ```
 
-The resulting JSON report mirrors the structure outlined in `AGENTS.md` and is ready for CI ingestion. It defaults to `reports/screenx-all.json` unless you override `--output`.
+The resulting JSON report mirrors the structure outlined in `AGENTS.md` and is ready for CI ingestion. It defaults to `designbench-reports/screenx-all.json` unless you override `--output`.
 
 ## Preflight helper
 

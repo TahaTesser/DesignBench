@@ -24,6 +24,8 @@ var (
 	reportsDir    string
 )
 
+const defaultReportsDir = "designbench-reports"
+
 func main() {
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
@@ -41,7 +43,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&componentFlag, "component", "", "Component name label for the benchmark run.")
 	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Override JSON output file name (defaults to auto-generated under reports-dir).")
 	cmd.PersistentFlags().StringVar(&timeoutFlag, "timeout", "60s", "Overall command timeout (e.g. 45s, 2m).")
-	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", "reports", "Directory where JSON reports are written.")
+	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", defaultReportsDir, "Directory where JSON reports are written.")
 
 	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newAllCmd(), newPreflightCmd())
 
@@ -306,7 +308,7 @@ func resolveOutputFile(component string, platform string) (string, error) {
 	if path == "" {
 		dir := strings.TrimSpace(reportsDir)
 		if dir == "" {
-			dir = "reports"
+			dir = defaultReportsDir
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("create reports dir: %w", err)
@@ -318,7 +320,7 @@ func resolveOutputFile(component string, platform string) (string, error) {
 	if !filepath.IsAbs(path) {
 		dir := strings.TrimSpace(reportsDir)
 		if dir == "" {
-			dir = "reports"
+			dir = defaultReportsDir
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("create reports dir: %w", err)
