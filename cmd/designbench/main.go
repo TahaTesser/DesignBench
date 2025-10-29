@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/tahatesser/designbench/pkg/android"
 	"github.com/tahatesser/designbench/pkg/ios"
+	"github.com/tahatesser/designbench/pkg/preflight"
 	"github.com/tahatesser/designbench/pkg/report"
 )
 
@@ -37,11 +39,11 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVar(&componentFlag, "component", "", "Component name label for the benchmark run.")
-	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Optional JSON output file name (stored under reports-dir unless absolute).")
+	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Override JSON output file name (defaults to auto-generated under reports-dir).")
 	cmd.PersistentFlags().StringVar(&timeoutFlag, "timeout", "60s", "Overall command timeout (e.g. 45s, 2m).")
 	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", "reports", "Directory where JSON reports are written.")
 
-	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newAllCmd())
+	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newAllCmd(), newPreflightCmd())
 
 	return cmd
 }
@@ -299,19 +301,29 @@ func commandContext(cmd *cobra.Command) (context.Context, context.CancelFunc, er
 	return ctx, cancel, nil
 }
 
-func resolveOutputFile(_ string, _ string) (string, error) {
-	if outputPath == "" {
-		return "", nil
-	}
-	path := outputPath
-	if !filepath.IsAbs(path) {
-		if reportsDir == "" {
-			reportsDir = "reports"
+func resolveOutputFile(component string, platform string) (string, error) {
+	path := strings.TrimSpace(outputPath)
+	if path == "" {
+		dir := strings.TrimSpace(reportsDir)
+		if dir == "" {
+			dir = "reports"
 		}
-		if err := os.MkdirAll(reportsDir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("create reports dir: %w", err)
 		}
-		path = filepath.Join(reportsDir, path)
+		filename := defaultReportFileName(component, platform)
+		return filepath.Join(dir, filename), nil
+	}
+
+	if !filepath.IsAbs(path) {
+		dir := strings.TrimSpace(reportsDir)
+		if dir == "" {
+			dir = "reports"
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("create reports dir: %w", err)
+		}
+		path = filepath.Join(dir, path)
 	} else {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -336,4 +348,242 @@ func currentCLICommand(cmd *cobra.Command) string {
 		b.WriteString(arg)
 	}
 	return b.String()
+}
+
+func defaultReportFileName(component string, platform string) string {
+	componentToken := sanitizeToken(component, "component")
+	platformToken := sanitizeToken(platform, "run")
+	if platformToken != "" {
+		return fmt.Sprintf("%s-%s.json", componentToken, platformToken)
+	}
+	return componentToken + ".json"
+}
+
+func sanitizeToken(value string, fallback string) string {
+	v := strings.TrimSpace(strings.ToLower(value))
+	if v == "" {
+		return fallback
+	}
+
+	var b strings.Builder
+	lastDash := false
+	for i := 0; i < len(v); i++ {
+		ch := v[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteByte(ch)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+
+	token := strings.Trim(b.String(), "-")
+	if token == "" {
+		return fallback
+	}
+	return token
+}
+
+func newPreflightCmd() *cobra.Command {
+	var (
+		rootDir   string
+		adbPath   string
+		xcrunPath string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "preflight",
+		Short: "Inspect project and connected devices to suggest ready-to-run commands.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if rootDir == "" {
+				rootDir = "."
+			}
+			absRoot, err := filepath.Abs(rootDir)
+			if err != nil {
+				return fmt.Errorf("resolve project root: %w", err)
+			}
+
+			ctx, cancel, err := commandContext(cmd)
+			if err != nil {
+				return err
+			}
+			defer cancel()
+
+			out := cmd.OutOrStdout()
+
+			fmt.Fprintf(out, "Preflight (root: %s)\n\n", absRoot)
+
+			androidProj, androidProjErr := preflight.DetectAndroidProject(absRoot)
+			fmt.Fprintln(out, "Android:")
+			if androidProj != nil {
+				if androidProj.Package != "" {
+					fmt.Fprintf(out, "  Package: %s\n", androidProj.Package)
+				} else {
+					fmt.Fprintln(out, "  Package: (not detected)")
+				}
+				activity := androidProj.Activity
+				if activity == "" {
+					activity = "<android-activity>"
+				}
+				fmt.Fprintf(out, "  Activity: %s\n", activity)
+				if androidProj.ManifestPath != "" {
+					fmt.Fprintf(out, "  Manifest: %s\n", androidProj.ManifestPath)
+				}
+				for _, warning := range androidProj.Warnings {
+					fmt.Fprintf(out, "  ! %s\n", warning)
+				}
+			} else {
+				fmt.Fprintln(out, "  Project: (not detected)")
+			}
+			if androidProjErr != nil {
+				fmt.Fprintf(out, "  Note: %v\n", androidProjErr)
+			}
+
+			androidDevice, androidDeviceErr := preflight.DetectAndroidDevice(ctx, adbPath)
+			if androidDeviceErr != nil {
+				fmt.Fprintf(out, "  Device: %v\n", androidDeviceErr)
+			} else {
+				description := androidDevice.ID
+				if androidDevice.Model != "" {
+					description = fmt.Sprintf("%s (%s)", androidDevice.ID, androidDevice.Model)
+				}
+				fmt.Fprintf(out, "  Device: %s\n", description)
+			}
+
+			fmt.Fprintln(out, "\niOS:")
+			iosProj, iosProjErr := preflight.DetectIOSProject(absRoot)
+			if iosProjErr != nil {
+				fmt.Fprintf(out, "  Project: %v\n", iosProjErr)
+			} else {
+				if iosProj.BundleID != "" {
+					fmt.Fprintf(out, "  Bundle: %s\n", iosProj.BundleID)
+				}
+				if iosProj.InfoPlistPath != "" {
+					fmt.Fprintf(out, "  Info.plist: %s\n", iosProj.InfoPlistPath)
+				}
+			}
+
+			iosDevice, iosDeviceErr := preflight.DetectIOSDevice(ctx, xcrunPath)
+			if iosDeviceErr != nil {
+				fmt.Fprintf(out, "  Device: %v\n", iosDeviceErr)
+			} else {
+				description := iosDevice.UDID
+				if iosDevice.Name != "" {
+					description = fmt.Sprintf("%s (%s)", iosDevice.UDID, iosDevice.Name)
+				}
+				fmt.Fprintf(out, "  Device: %s\n", description)
+				if iosDevice.Runtime != "" {
+					fmt.Fprintf(out, "  Runtime: %s\n", iosDevice.Runtime)
+				}
+			}
+
+			fmt.Fprintln(out)
+			printPreflightSuggestions(out, androidProj, androidDevice, iosProj, iosDevice)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&rootDir, "root", ".", "Project root to scan for configuration files.")
+	cmd.Flags().StringVar(&adbPath, "android-adb", "adb", "Path to the adb binary for device detection.")
+	cmd.Flags().StringVar(&xcrunPath, "ios-xcrun", "xcrun", "Path to the xcrun binary for simulator detection.")
+	return cmd
+}
+
+func printPreflightSuggestions(out io.Writer,
+	androidProj *preflight.AndroidProject,
+	androidDevice *preflight.AndroidDevice,
+	iosProj *preflight.IOSProject,
+	iosDevice *preflight.IOSDevice,
+) {
+	androidCmd := buildAndroidSuggestion(androidProj, androidDevice)
+	iosCmd := buildIOSSuggestion(iosProj, iosDevice)
+	allCmd := buildAllSuggestion(androidProj, androidDevice, iosProj, iosDevice)
+
+	if androidCmd == "" && iosCmd == "" && allCmd == "" {
+		fmt.Fprintln(out, "No ready-to-run command suggestions available.")
+		return
+	}
+
+	fmt.Fprintln(out, "Suggested commands:")
+	first := true
+	if androidCmd != "" {
+		fmt.Fprintf(out, "  Android:\n    %s\n", androidCmd)
+		first = false
+	}
+	if iosCmd != "" {
+		if !first {
+			fmt.Fprintln(out)
+		}
+		fmt.Fprintf(out, "  iOS:\n    %s\n", iosCmd)
+		first = false
+	}
+	if allCmd != "" {
+		if !first {
+			fmt.Fprintln(out)
+		}
+		fmt.Fprintf(out, "  Cross-platform:\n    %s\n", allCmd)
+	}
+}
+
+func buildAndroidSuggestion(proj *preflight.AndroidProject, device *preflight.AndroidDevice) string {
+	if proj == nil && device == nil {
+		return ""
+	}
+	pkg := "<android-package>"
+	if proj != nil && proj.Package != "" {
+		pkg = proj.Package
+	}
+	activity := "<android-activity>"
+	if proj != nil && proj.Activity != "" {
+		activity = proj.Activity
+	}
+	cmd := []string{"designbench", "android", "-p", pkg, "-a", activity}
+	if device != nil && device.ID != "" {
+		cmd = append(cmd, "--device", device.ID)
+	}
+	return strings.Join(cmd, " ")
+}
+
+func buildIOSSuggestion(proj *preflight.IOSProject, device *preflight.IOSDevice) string {
+	if proj == nil && device == nil {
+		return ""
+	}
+	bundle := "<ios-bundle>"
+	if proj != nil && proj.BundleID != "" {
+		bundle = proj.BundleID
+	}
+	cmd := []string{"designbench", "ios", "-b", bundle}
+	if device != nil && device.UDID != "" {
+		cmd = append(cmd, "--device", device.UDID)
+	}
+	return strings.Join(cmd, " ")
+}
+
+func buildAllSuggestion(androidProj *preflight.AndroidProject, androidDevice *preflight.AndroidDevice, iosProj *preflight.IOSProject, iosDevice *preflight.IOSDevice) string {
+	if (androidProj == nil && androidDevice == nil) || (iosProj == nil && iosDevice == nil) {
+		return ""
+	}
+	pkg := "<android-package>"
+	if androidProj != nil && androidProj.Package != "" {
+		pkg = androidProj.Package
+	}
+	activity := "<android-activity>"
+	if androidProj != nil && androidProj.Activity != "" {
+		activity = androidProj.Activity
+	}
+	bundle := "<ios-bundle>"
+	if iosProj != nil && iosProj.BundleID != "" {
+		bundle = iosProj.BundleID
+	}
+	cmd := []string{"designbench", "all", "--android-package", pkg, "--android-activity", activity, "--ios-bundle", bundle}
+	if androidDevice != nil && androidDevice.ID != "" {
+		cmd = append(cmd, "--android-device", androidDevice.ID)
+	}
+	if iosDevice != nil && iosDevice.UDID != "" {
+		cmd = append(cmd, "--ios-device", iosDevice.UDID)
+	}
+	return strings.Join(cmd, " ")
 }
