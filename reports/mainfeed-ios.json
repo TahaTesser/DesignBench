@@ -1,0 +1,18 @@
+{
+  "component": "MainFeed",
+  "ios": {
+    "component": "MainFeed",
+    "bundleId": "orgIdentifier.iosApp",
+    "renderTimeMs": 185.040167,
+    "device": {
+      "id": "F8F4CD2A-DBCB-4407-9A47-93D4DFBB5B99",
+      "model": "iPhone 16e",
+      "osVersion": "iOS 26.0",
+      "platform": "ios",
+      "resolution": "com.apple.CoreSimulator.SimDeviceType.iPhone-16e"
+    },
+    "command": "xcrun simctl launch F8F4CD2A-DBCB-4407-9A47-93D4DFBB5B99 orgIdentifier.iosApp",
+    "timestamp": "2025-10-30T00:12:24.687144+02:00"
+  },
+  "cliCommand": "designbench ios --component MainFeed --bundle orgIdentifier.iosApp --device F8F4CD2A-DBCB-4407-9A47-93D4DFBB5B99 --output mainfeed-ios.json"
+}
