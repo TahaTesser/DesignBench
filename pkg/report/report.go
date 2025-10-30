@@ -19,27 +19,29 @@ type DeviceMetadata struct {
 
 // AndroidMetrics represents render/startup timing measurements collected from an Android device.
 type AndroidMetrics struct {
-	Component    string          `json:"component"`
-	Activity     string          `json:"activity"`
-	Package      string          `json:"package"`
-	FirstFrameMs float64         `json:"firstFrameMs,omitempty"`
-	TotalTimeMs  float64         `json:"totalTimeMs,omitempty"`
-	WaitTimeMs   float64         `json:"waitTimeMs,omitempty"`
-	LaunchState  string          `json:"launchState,omitempty"`
-	Device       *DeviceMetadata `json:"device,omitempty"`
-	Command      string          `json:"command,omitempty"`
-	Timestamp    time.Time       `json:"timestamp"`
+	Component          string          `json:"component"`
+	Activity           string          `json:"activity"`
+	Package            string          `json:"package"`
+	BenchmarkComponent string          `json:"benchmarkComponent,omitempty"`
+	FirstFrameMs       float64         `json:"firstFrameMs,omitempty"`
+	TotalTimeMs        float64         `json:"totalTimeMs,omitempty"`
+	WaitTimeMs         float64         `json:"waitTimeMs,omitempty"`
+	LaunchState        string          `json:"launchState,omitempty"`
+	Device             *DeviceMetadata `json:"device,omitempty"`
+	Command            string          `json:"command,omitempty"`
+	Timestamp          time.Time       `json:"timestamp"`
 }
 
 // IOSMetrics represents render/startup measurements captured from an iOS simulator/device.
 type IOSMetrics struct {
-	Component    string          `json:"component"`
-	BundleID     string          `json:"bundleId"`
-	LaunchArgs   []string        `json:"launchArgs,omitempty"`
-	RenderTimeMs float64         `json:"renderTimeMs,omitempty"`
-	Device       *DeviceMetadata `json:"device,omitempty"`
-	Command      string          `json:"command,omitempty"`
-	Timestamp    time.Time       `json:"timestamp"`
+	Component          string          `json:"component"`
+	BundleID           string          `json:"bundleId"`
+	LaunchArgs         []string        `json:"launchArgs,omitempty"`
+	BenchmarkComponent string          `json:"benchmarkComponent,omitempty"`
+	RenderTimeMs       float64         `json:"renderTimeMs,omitempty"`
+	Device             *DeviceMetadata `json:"device,omitempty"`
+	Command            string          `json:"command,omitempty"`
+	Timestamp          time.Time       `json:"timestamp"`
 }
 
 // Result aggregates metrics for a single component across supported platforms.

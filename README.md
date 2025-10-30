@@ -36,6 +36,7 @@ go run ./cmd/designbench android \
   --component ScreenX \
   --package com.example.app \
   --activity .BenchmarkActivity \
+  --benchmark-component MyComposable \
   --device emulator-5554
 ```
 
@@ -52,6 +53,7 @@ Component: ScreenX
 go run ./cmd/designbench ios \
   --component ScreenX \
   --bundle com.example.app \
+  --benchmark-component DetailView \
   --device <simulator-udid>
 ```
 

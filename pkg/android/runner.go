@@ -16,13 +16,14 @@ import (
 
 // Config controls a single Android render benchmark invocation.
 type Config struct {
-	Component  string
-	Package    string
-	Activity   string
-	DeviceID   string
-	ADBPath    string
-	LaunchArgs []string
-	Timeout    time.Duration
+	Component          string
+	Package            string
+	Activity           string
+	DeviceID           string
+	ADBPath            string
+	LaunchArgs         []string
+	Timeout            time.Duration
+	BenchmarkComponent string
 }
 
 // Run executes a basic render benchmark using `adb shell am start -W` to capture launch timings.
@@ -50,6 +51,9 @@ func Run(ctx context.Context, cfg Config) (*report.AndroidMetrics, error) {
 		args = append(args, "-s", cfg.DeviceID)
 	}
 	args = append(args, "shell", "am", "start", "-W", componentArg)
+	if cfg.BenchmarkComponent != "" {
+		args = append(args, "-e", "designbench_component", cfg.BenchmarkComponent)
+	}
 	args = append(args, cfg.LaunchArgs...)
 
 	cmd := exec.CommandContext(ctx, adb, args...)
@@ -65,6 +69,7 @@ func Run(ctx context.Context, cfg Config) (*report.AndroidMetrics, error) {
 	metrics.Component = component
 	metrics.Activity = cfg.Activity
 	metrics.Package = cfg.Package
+	metrics.BenchmarkComponent = cfg.BenchmarkComponent
 	metrics.Command = fmt.Sprintf("%s %s", adb, strings.Join(args, " "))
 	metrics.Timestamp = time.Now()
 	metrics.Device = fetchDeviceMetadata(ctx, adb, cfg.DeviceID)

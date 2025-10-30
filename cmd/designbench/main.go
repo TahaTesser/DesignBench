@@ -51,11 +51,12 @@ func newRootCmd() *cobra.Command {
 }
 
 type androidOptions struct {
-	packageName string
-	activity    string
-	deviceID    string
-	adbPath     string
-	launchArgs  []string
+	packageName        string
+	activity           string
+	deviceID           string
+	adbPath            string
+	launchArgs         []string
+	benchmarkComponent string
 }
 
 func (opts *androidOptions) bind(cmd *cobra.Command, prefix string) {
@@ -75,13 +76,17 @@ func (opts *androidOptions) bind(cmd *cobra.Command, prefix string) {
 
 	launchArgsFlag := prefix + "launch-args"
 	cmd.Flags().StringSliceVar(&opts.launchArgs, launchArgsFlag, nil, "Additional arguments forwarded to `am start`.")
+
+	benchmarkComponentFlag := prefix + "benchmark-component"
+	cmd.Flags().StringVar(&opts.benchmarkComponent, benchmarkComponentFlag, "", "Compose component identifier to benchmark (forwarded as an extra to `am start`).")
 }
 
 type iosOptions struct {
-	bundleID   string
-	deviceID   string
-	xcrunPath  string
-	launchArgs []string
+	bundleID           string
+	deviceID           string
+	xcrunPath          string
+	launchArgs         []string
+	benchmarkComponent string
 }
 
 func (opts *iosOptions) bind(cmd *cobra.Command, prefix string) {
@@ -97,6 +102,9 @@ func (opts *iosOptions) bind(cmd *cobra.Command, prefix string) {
 
 	launchArgsFlag := prefix + "launch-args"
 	cmd.Flags().StringSliceVar(&opts.launchArgs, launchArgsFlag, nil, "Extra arguments forwarded to `simctl launch`.")
+
+	benchmarkComponentFlag := prefix + "benchmark-component"
+	cmd.Flags().StringVar(&opts.benchmarkComponent, benchmarkComponentFlag, "", "SwiftUI component identifier to benchmark (forwarded via simulator environment).")
 }
 
 func newAndroidCmd() *cobra.Command {
@@ -113,12 +121,13 @@ func newAndroidCmd() *cobra.Command {
 			defer cancel()
 
 			cfg := android.Config{
-				Component:  component,
-				Package:    opts.packageName,
-				Activity:   opts.activity,
-				DeviceID:   opts.deviceID,
-				ADBPath:    opts.adbPath,
-				LaunchArgs: opts.launchArgs,
+				Component:          component,
+				Package:            opts.packageName,
+				Activity:           opts.activity,
+				DeviceID:           opts.deviceID,
+				ADBPath:            opts.adbPath,
+				LaunchArgs:         opts.launchArgs,
+				BenchmarkComponent: opts.benchmarkComponent,
 			}
 			metrics, err := android.Run(ctx, cfg)
 			if err != nil {
@@ -159,11 +168,12 @@ func newIOSCmd() *cobra.Command {
 			defer cancel()
 
 			cfg := ios.Config{
-				Component:  component,
-				BundleID:   opts.bundleID,
-				DeviceID:   opts.deviceID,
-				LaunchArgs: opts.launchArgs,
-				XCRunPath:  opts.xcrunPath,
+				Component:          component,
+				BundleID:           opts.bundleID,
+				DeviceID:           opts.deviceID,
+				LaunchArgs:         opts.launchArgs,
+				XCRunPath:          opts.xcrunPath,
+				BenchmarkComponent: opts.benchmarkComponent,
 			}
 			metrics, err := ios.Run(ctx, cfg)
 			if err != nil {
@@ -211,12 +221,13 @@ func newAllCmd() *cobra.Command {
 
 			if aOpts.packageName != "" || aOpts.activity != "" {
 				cfg := android.Config{
-					Component:  component,
-					Package:    aOpts.packageName,
-					Activity:   aOpts.activity,
-					DeviceID:   aOpts.deviceID,
-					ADBPath:    aOpts.adbPath,
-					LaunchArgs: aOpts.launchArgs,
+					Component:          component,
+					Package:            aOpts.packageName,
+					Activity:           aOpts.activity,
+					DeviceID:           aOpts.deviceID,
+					ADBPath:            aOpts.adbPath,
+					LaunchArgs:         aOpts.launchArgs,
+					BenchmarkComponent: aOpts.benchmarkComponent,
 				}
 				metrics, err := android.Run(ctx, cfg)
 				if err != nil {
@@ -227,11 +238,12 @@ func newAllCmd() *cobra.Command {
 
 			if iOpts.bundleID != "" {
 				cfg := ios.Config{
-					Component:  component,
-					BundleID:   iOpts.bundleID,
-					DeviceID:   iOpts.deviceID,
-					LaunchArgs: iOpts.launchArgs,
-					XCRunPath:  iOpts.xcrunPath,
+					Component:          component,
+					BundleID:           iOpts.bundleID,
+					DeviceID:           iOpts.deviceID,
+					LaunchArgs:         iOpts.launchArgs,
+					XCRunPath:          iOpts.xcrunPath,
+					BenchmarkComponent: iOpts.benchmarkComponent,
 				}
 				metrics, err := ios.Run(ctx, cfg)
 				if err != nil {
