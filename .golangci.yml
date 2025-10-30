@@ -1,0 +1,32 @@
+run:
+  timeout: 5m
+  allow-parallel-runners: true
+
+linters:
+  enable:
+    - errcheck
+    - gofmt
+    - goimports
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+
+linters-settings:
+  revive:
+    ignore-generated-header: true
+    severity: warning
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+      - name: var-naming
+        arguments:
+          - allowLeadingUnderscore
+
+issues:
+  exclude-rules:
+    - linters:
+        - revive
+      text: "should have comment or be unexported"
+      path: _test\.go

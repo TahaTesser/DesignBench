@@ -113,6 +113,17 @@ Use the suggested commands as-is or tweak flags to suit your benchmark environme
 
 If metadata is missing, placeholders such as `<android-package>` or `<ios-bundle>` are shown so you know which flags to fill in manually.
 
+## Linting & formatting
+
+DesignBench follows standard Go tooling for style and static analysis. Run the helper targets from the repository root to keep contributions consistent:
+
+```sh
+make fmt   # gofmt all packages in the module
+make lint  # run golangci-lint using .golangci.yml configuration
+```
+
+Install [`golangci-lint`](https://golangci-lint.run/welcome/install/) locally (or pin it in CI) to enable the aggregated checks such as `govet`, `staticcheck`, and formatting enforcement. The configuration lives in `.golangci.yml`.
+
 ## Next steps
 
 - Replace the launch-based probes with dedicated Macrobenchmark and XCTest performance harnesses.
