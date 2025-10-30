@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -14,11 +15,12 @@ import (
 
 // Config controls an iOS render benchmark invocation.
 type Config struct {
-	Component  string
-	BundleID   string
-	DeviceID   string
-	LaunchArgs []string
-	XCRunPath  string
+	Component          string
+	BundleID           string
+	DeviceID           string
+	LaunchArgs         []string
+	XCRunPath          string
+	BenchmarkComponent string
 }
 
 // Run executes a simple launch benchmark by invoking `xcrun simctl launch` and timing its duration.
@@ -48,6 +50,10 @@ func Run(ctx context.Context, cfg Config) (*report.IOSMetrics, error) {
 
 	args := append([]string{"simctl", "launch", deviceID, cfg.BundleID}, cfg.LaunchArgs...)
 	cmd := exec.CommandContext(ctx, xcrun, args...)
+	if cfg.BenchmarkComponent != "" {
+		env := append(os.Environ(), "SIMCTL_CHILD_DESIGNBENCH_COMPONENT="+cfg.BenchmarkComponent)
+		cmd.Env = env
+	}
 	start := time.Now()
 	output, err := cmd.CombinedOutput()
 	elapsed := time.Since(start)
@@ -56,13 +62,14 @@ func Run(ctx context.Context, cfg Config) (*report.IOSMetrics, error) {
 	}
 
 	metrics := &report.IOSMetrics{
-		Component:    component,
-		BundleID:     cfg.BundleID,
-		LaunchArgs:   cfg.LaunchArgs,
-		RenderTimeMs: float64(elapsed) / float64(time.Millisecond),
-		Command:      fmt.Sprintf("%s %s", xcrun, strings.Join(args, " ")),
-		Timestamp:    time.Now(),
-		Device:       deviceMetadata,
+		Component:          component,
+		BundleID:           cfg.BundleID,
+		LaunchArgs:         cfg.LaunchArgs,
+		BenchmarkComponent: cfg.BenchmarkComponent,
+		RenderTimeMs:       float64(elapsed) / float64(time.Millisecond),
+		Command:            fmt.Sprintf("%s %s", xcrun, strings.Join(args, " ")),
+		Timestamp:          time.Now(),
+		Device:             deviceMetadata,
 	}
 
 	return metrics, nil
