@@ -45,7 +45,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&timeoutFlag, "timeout", "60s", "Overall command timeout (e.g. 45s, 2m).")
 	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", defaultReportsDir, "Directory where JSON reports are written.")
 
-	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newAllCmd(), newPreflightCmd())
+	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newPreflightCmd())
 
 	return cmd
 }
@@ -200,80 +200,6 @@ func newIOSCmd() *cobra.Command {
 	return cmd
 }
 
-func newAllCmd() *cobra.Command {
-	var aOpts androidOptions
-	var iOpts iosOptions
-	cmd := &cobra.Command{
-		Use:   "all",
-		Short: "Run Android and iOS benchmarks sequentially.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			component := resolveComponent(defaultComponentName(aOpts.activity, iOpts.bundleID))
-			ctx, cancel, err := commandContext(cmd)
-			if err != nil {
-				return err
-			}
-			defer cancel()
-
-			result := report.Result{
-				Component:  component,
-				CLICommand: currentCLICommand(cmd),
-			}
-
-			if aOpts.packageName != "" || aOpts.activity != "" {
-				cfg := android.Config{
-					Component:          component,
-					Package:            aOpts.packageName,
-					Activity:           aOpts.activity,
-					DeviceID:           aOpts.deviceID,
-					ADBPath:            aOpts.adbPath,
-					LaunchArgs:         aOpts.launchArgs,
-					BenchmarkComponent: aOpts.benchmarkComponent,
-				}
-				metrics, err := android.Run(ctx, cfg)
-				if err != nil {
-					return err
-				}
-				result.Android = metrics
-			}
-
-			if iOpts.bundleID != "" {
-				cfg := ios.Config{
-					Component:          component,
-					BundleID:           iOpts.bundleID,
-					DeviceID:           iOpts.deviceID,
-					LaunchArgs:         iOpts.launchArgs,
-					XCRunPath:          iOpts.xcrunPath,
-					BenchmarkComponent: iOpts.benchmarkComponent,
-				}
-				metrics, err := ios.Run(ctx, cfg)
-				if err != nil {
-					return err
-				}
-				result.IOS = metrics
-			}
-
-			if result.Android == nil && result.IOS == nil {
-				return fmt.Errorf("provide Android and/or iOS configuration to run")
-			}
-
-			fmt.Print(report.FormatSummary(result))
-			if path, err := resolveOutputFile(component, "all"); err != nil {
-				return err
-			} else if path != "" {
-				if err := report.SaveJSON(path, result); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}
-
-	aOpts.bind(cmd, "android-")
-	iOpts.bind(cmd, "ios-")
-
-	return cmd
-}
-
 func resolveComponent(fallback string) string {
 	if componentFlag != "" {
 		return componentFlag
@@ -282,15 +208,6 @@ func resolveComponent(fallback string) string {
 		return fallback
 	}
 	return "component"
-}
-
-func defaultComponentName(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func commandContext(cmd *cobra.Command) (context.Context, context.CancelFunc, error) {
@@ -514,9 +431,8 @@ func printPreflightSuggestions(out io.Writer,
 ) {
 	androidCmd := buildAndroidSuggestion(androidProj, androidDevice)
 	iosCmd := buildIOSSuggestion(iosProj, iosDevice)
-	allCmd := buildAllSuggestion(androidProj, androidDevice, iosProj, iosDevice)
 
-	if androidCmd == "" && iosCmd == "" && allCmd == "" {
+	if androidCmd == "" && iosCmd == "" {
 		fmt.Fprintln(out, "No ready-to-run command suggestions available.")
 		return
 	}
@@ -532,13 +448,6 @@ func printPreflightSuggestions(out io.Writer,
 			fmt.Fprintln(out)
 		}
 		fmt.Fprintf(out, "  iOS:\n    %s\n", iosCmd)
-		first = false
-	}
-	if allCmd != "" {
-		if !first {
-			fmt.Fprintln(out)
-		}
-		fmt.Fprintf(out, "  Cross-platform:\n    %s\n", allCmd)
 	}
 }
 
@@ -572,32 +481,6 @@ func buildIOSSuggestion(proj *preflight.IOSProject, device *preflight.IOSDevice)
 	cmd := []string{"designbench", "ios", "-b", bundle}
 	if device != nil && device.UDID != "" {
 		cmd = append(cmd, "--device", device.UDID)
-	}
-	return strings.Join(cmd, " ")
-}
-
-func buildAllSuggestion(androidProj *preflight.AndroidProject, androidDevice *preflight.AndroidDevice, iosProj *preflight.IOSProject, iosDevice *preflight.IOSDevice) string {
-	if (androidProj == nil && androidDevice == nil) || (iosProj == nil && iosDevice == nil) {
-		return ""
-	}
-	pkg := "<android-package>"
-	if androidProj != nil && androidProj.Package != "" {
-		pkg = androidProj.Package
-	}
-	activity := "<android-activity>"
-	if androidProj != nil && androidProj.Activity != "" {
-		activity = androidProj.Activity
-	}
-	bundle := "<ios-bundle>"
-	if iosProj != nil && iosProj.BundleID != "" {
-		bundle = iosProj.BundleID
-	}
-	cmd := []string{"designbench", "all", "--android-package", pkg, "--android-activity", activity, "--ios-bundle", bundle}
-	if androidDevice != nil && androidDevice.ID != "" {
-		cmd = append(cmd, "--android-device", androidDevice.ID)
-	}
-	if iosDevice != nil && iosDevice.UDID != "" {
-		cmd = append(cmd, "--ios-device", iosDevice.UDID)
 	}
 	return strings.Join(cmd, " ")
 }

@@ -105,7 +105,7 @@ This document outlines the architecture, goals, and workflow for **DesignBench**
 
   * `designbench android`
   * `designbench ios`
-  * `designbench all`
+  * `designbench preflight`
 * Handles build, execution, result collection, and aggregation.
 * Annotates results with device metadata (model, OS version, screen resolution).
 
