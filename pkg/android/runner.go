@@ -73,6 +73,17 @@ func Run(ctx context.Context, cfg Config) (*report.AndroidMetrics, error) {
 	metrics.Command = fmt.Sprintf("%s %s", adb, strings.Join(args, " "))
 	metrics.Timestamp = time.Now()
 	metrics.Device = fetchDeviceMetadata(ctx, adb, cfg.DeviceID)
+	if memoryMB, err := collectMemoryUsage(ctx, adb, cfg.DeviceID, cfg.Package); err == nil {
+		metrics.MemoryMB = memoryMB
+	}
+	if cpuPercent, cpuTimeMs, err := collectCPUMetrics(ctx, adb, cfg.DeviceID, cfg.Package); err == nil {
+		if cpuPercent > 0 {
+			metrics.CPUPercent = cpuPercent
+		}
+		if cpuTimeMs > 0 {
+			metrics.CPUTimeMs = cpuTimeMs
+		}
+	}
 
 	return metrics, nil
 }
@@ -171,4 +182,184 @@ func runADB(ctx context.Context, adbPath, deviceID string, args ...string) (stri
 		return "", err
 	}
 	return string(out), nil
+}
+
+func collectMemoryUsage(ctx context.Context, adbPath, deviceID, packageName string) (float64, error) {
+	if packageName == "" {
+		return 0, errors.New("package name required for memory collection")
+	}
+	out, err := runADB(ctx, adbPath, deviceID, "shell", "dumpsys", "meminfo", packageName)
+	if err != nil {
+		return 0, fmt.Errorf("dumpsys meminfo: %w", err)
+	}
+	return parseMeminfoForMB(out)
+}
+
+func parseMeminfoForMB(output string) (float64, error) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "TOTAL PSS") || strings.HasPrefix(upper, "TOTAL") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				line = line[idx+1:]
+			}
+			fields := strings.Fields(line)
+			for _, field := range fields {
+				clean := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(field, "kB"), "KB"), "kb")
+				if v, err := strconv.ParseFloat(clean, 64); err == nil {
+					return v / 1024.0, nil
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("unable to locate TOTAL memory usage in dumpsys output")
+}
+
+func collectCPUMetrics(ctx context.Context, adbPath, deviceID, packageName string) (float64, float64, error) {
+	pid, err := resolveAndroidPID(ctx, adbPath, deviceID, packageName)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	cpuPercent, percentErr := androidCPUPercent(ctx, adbPath, deviceID, pid, packageName)
+	cpuTimeMs, timeErr := androidCPUTime(ctx, adbPath, deviceID, pid)
+
+	if percentErr != nil && timeErr != nil {
+		return 0, 0, fmt.Errorf("cpu metrics unavailable: %v; %v", percentErr, timeErr)
+	}
+	return cpuPercent, cpuTimeMs, nil
+}
+
+func resolveAndroidPID(ctx context.Context, adbPath, deviceID, packageName string) (string, error) {
+	out, err := runADB(ctx, adbPath, deviceID, "shell", "pidof", packageName)
+	if err == nil {
+		pid := strings.TrimSpace(out)
+		if pid != "" {
+			return strings.Fields(pid)[0], nil
+		}
+	}
+
+	psOut, psErr := runADB(ctx, adbPath, deviceID, "shell", "ps")
+	if psErr != nil {
+		if err != nil {
+			return "", fmt.Errorf("pid lookup failed: %v; %v", err, psErr)
+		}
+		return "", psErr
+	}
+	scanner := bufio.NewScanner(strings.NewReader(psOut))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, packageName) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid := fields[0]
+		if _, convErr := strconv.Atoi(pid); convErr == nil {
+			return pid, nil
+		}
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return "", scanErr
+	}
+	return "", fmt.Errorf("process for %s not found", packageName)
+}
+
+func androidCPUPercent(ctx context.Context, adbPath, deviceID, pid, packageName string) (float64, error) {
+	out, err := runADB(ctx, adbPath, deviceID, "shell", "top", "-b", "-n", "1", "-p", pid)
+	if err == nil {
+		if value, parseErr := parseAndroidTopCPU(out, pid); parseErr == nil {
+			return value, nil
+		}
+	}
+	cpuInfo, err := runADB(ctx, adbPath, deviceID, "shell", "dumpsys", "cpuinfo")
+	if err != nil {
+		return 0, err
+	}
+	return parseDumpsysCPU(cpuInfo, packageName)
+}
+
+func parseAndroidTopCPU(output, pid string) (float64, error) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] != pid {
+			continue
+		}
+		for _, field := range fields[1:] {
+			if strings.Contains(field, "%") {
+				value := strings.TrimSuffix(field, "%")
+				val, err := strconv.ParseFloat(value, 64)
+				if err == nil {
+					return val, nil
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("pid not present in top output")
+}
+
+func parseDumpsysCPU(output, packageName string) (float64, error) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.Contains(line, packageName) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		first := strings.TrimSuffix(fields[0], "%")
+		if val, err := strconv.ParseFloat(first, 64); err == nil {
+			return val, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("package not present in cpuinfo output")
+}
+
+const clockTicksPerSecond = 100.0
+
+func androidCPUTime(ctx context.Context, adbPath, deviceID, pid string) (float64, error) {
+	statPath := fmt.Sprintf("/proc/%s/stat", pid)
+	out, err := runADB(ctx, adbPath, deviceID, "shell", "cat", statPath)
+	if err != nil {
+		return 0, fmt.Errorf("read proc stat: %w", err)
+	}
+	fields := strings.Fields(out)
+	if len(fields) < 16 {
+		return 0, errors.New("unexpected /proc stat format")
+	}
+	utime, err := strconv.ParseFloat(fields[13], 64)
+	if err != nil {
+		return 0, err
+	}
+	stime, err := strconv.ParseFloat(fields[14], 64)
+	if err != nil {
+		return 0, err
+	}
+	totalTicks := utime + stime
+	return (totalTicks / clockTicksPerSecond) * 1000.0, nil
 }

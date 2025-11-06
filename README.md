@@ -1,4 +1,6 @@
-# DesignBench
+<p align="center">
+  <img src="./docs/DesignBench.png" alt="DesignBench Logo" width="200" />
+</p>
 
 DesignBench is a Go CLI that benchmarks initial UI render performance for Kotlin Multiplatform projects across Android (Compose) and iOS (SwiftUI).
 
@@ -25,4 +27,4 @@ designbench ios --component ScreenX --bundle com.example.app
 
 ## Reports
 
-Results are written to `designbench-reports/` in JSON and echoed as a terminal summary. Use `--output` or `--reports-dir` to customize filenames and locations.
+Results are written to `designbench-reports/` in JSON and echoed as a terminal summary, including render timings, memory usage, and CPU load/time. Use `--output` or `--reports-dir` to customize filenames and locations.

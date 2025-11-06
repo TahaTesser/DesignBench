@@ -26,6 +26,9 @@ type AndroidMetrics struct {
 	FirstFrameMs       float64         `json:"firstFrameMs,omitempty"`
 	TotalTimeMs        float64         `json:"totalTimeMs,omitempty"`
 	WaitTimeMs         float64         `json:"waitTimeMs,omitempty"`
+	MemoryMB           float64         `json:"memoryMb,omitempty"`
+	CPUPercent         float64         `json:"cpuPercent,omitempty"`
+	CPUTimeMs          float64         `json:"cpuTimeMs,omitempty"`
 	LaunchState        string          `json:"launchState,omitempty"`
 	Device             *DeviceMetadata `json:"device,omitempty"`
 	Command            string          `json:"command,omitempty"`
@@ -39,6 +42,9 @@ type IOSMetrics struct {
 	LaunchArgs         []string        `json:"launchArgs,omitempty"`
 	BenchmarkComponent string          `json:"benchmarkComponent,omitempty"`
 	RenderTimeMs       float64         `json:"renderTimeMs,omitempty"`
+	MemoryMB           float64         `json:"memoryMb,omitempty"`
+	CPUPercent         float64         `json:"cpuPercent,omitempty"`
+	CPUTimeMs          float64         `json:"cpuTimeMs,omitempty"`
 	Device             *DeviceMetadata `json:"device,omitempty"`
 	Command            string          `json:"command,omitempty"`
 	Timestamp          time.Time       `json:"timestamp"`
@@ -82,20 +88,50 @@ func FormatSummary(res Result) string {
 		if res.Android.Device != nil && res.Android.Device.Model != "" {
 			model = res.Android.Device.Model
 		}
-		out += fmt.Sprintf("  Android[%s]: total=%.1fms firstFrame=%.1fms wait=%.1fms\n",
+		mem := "-"
+		if res.Android.MemoryMB > 0 {
+			mem = fmt.Sprintf("%.1fMB", res.Android.MemoryMB)
+		}
+		cpu := "-"
+		if res.Android.CPUPercent > 0 {
+			cpu = fmt.Sprintf("%.1f%%", res.Android.CPUPercent)
+		}
+		cpuTime := "-"
+		if res.Android.CPUTimeMs > 0 {
+			cpuTime = fmt.Sprintf("%.0fms", res.Android.CPUTimeMs)
+		}
+		out += fmt.Sprintf("  Android[%s]: total=%.1fms firstFrame=%.1fms wait=%.1fms memory=%s cpu=%s cpuTime=%s\n",
 			model,
 			res.Android.TotalTimeMs,
 			res.Android.FirstFrameMs,
-			res.Android.WaitTimeMs)
+			res.Android.WaitTimeMs,
+			mem,
+			cpu,
+			cpuTime)
 	}
 	if res.IOS != nil {
 		model := "-"
 		if res.IOS.Device != nil && res.IOS.Device.Model != "" {
 			model = res.IOS.Device.Model
 		}
-		out += fmt.Sprintf("  iOS[%s]: render=%.1fms\n",
+		mem := "-"
+		if res.IOS.MemoryMB > 0 {
+			mem = fmt.Sprintf("%.1fMB", res.IOS.MemoryMB)
+		}
+		cpu := "-"
+		if res.IOS.CPUPercent > 0 {
+			cpu = fmt.Sprintf("%.1f%%", res.IOS.CPUPercent)
+		}
+		cpuTime := "-"
+		if res.IOS.CPUTimeMs > 0 {
+			cpuTime = fmt.Sprintf("%.0fms", res.IOS.CPUTimeMs)
+		}
+		out += fmt.Sprintf("  iOS[%s]: render=%.1fms memory=%s cpu=%s cpuTime=%s\n",
 			model,
-			res.IOS.RenderTimeMs)
+			res.IOS.RenderTimeMs,
+			mem,
+			cpu,
+			cpuTime)
 	}
 	return out
 }
