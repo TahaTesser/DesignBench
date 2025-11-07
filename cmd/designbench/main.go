@@ -52,15 +52,10 @@ func newRootCmd() *cobra.Command {
 }
 
 type androidOptions struct {
-	packageName     string
-	activity        string
-	deviceID        string
-	adbPath         string
-	install         bool
-	gradlePath      string
-	installTask     string
-	projectRoot     string
-	detectedProject *preflight.AndroidProject
+	packageName string
+	activity    string
+	deviceID    string
+	adbPath     string
 }
 
 type iosOptions struct {
@@ -72,7 +67,6 @@ type iosOptions struct {
 func newAndroidCmd() *cobra.Command {
 	var opts androidOptions
 	opts.adbPath = "adb"
-	opts.gradlePath = "./gradlew"
 	cmd := &cobra.Command{
 		Use:   "android",
 		Short: "Run Android render benchmark.",
@@ -88,12 +82,6 @@ func newAndroidCmd() *cobra.Command {
 			defer cancel()
 
 			benchmarkComponent := viewFlag
-
-			if opts.install {
-				if err := runAndroidInstall(ctx, cmd, &opts); err != nil {
-					return err
-				}
-			}
 
 			cfg := android.Config{
 				Component:          component,
@@ -125,7 +113,6 @@ func newAndroidCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&opts.install, "install", false, "Run the detected Gradle installRelease task before benchmarking.")
 	return cmd
 }
 
@@ -189,11 +176,7 @@ func ensureAndroidDefaults(opts *androidOptions) error {
 	if err == nil {
 		root = absRoot
 	}
-	opts.projectRoot = root
 	proj, detectErr := preflight.DetectAndroidProject(root)
-	if detectErr == nil {
-		opts.detectedProject = proj
-	}
 	missingPackage := strings.TrimSpace(opts.packageName) == ""
 	missingActivity := strings.TrimSpace(opts.activity) == ""
 	if !missingPackage && !missingActivity {
@@ -402,56 +385,6 @@ func newPreflightCmd() *cobra.Command {
 	}
 
 	return cmd
-}
-
-func runAndroidInstall(ctx context.Context, cobraCmd *cobra.Command, opts *androidOptions) error {
-	gradle := strings.TrimSpace(opts.gradlePath)
-	if gradle == "" {
-		gradle = "./gradlew"
-	}
-	task := strings.TrimSpace(opts.installTask)
-	if task == "" {
-		task = defaultAndroidInstallTask(opts.detectedProject)
-	}
-	if task == "" {
-		return fmt.Errorf("unable to determine Gradle install task; provide --install-task")
-	}
-	root := opts.projectRoot
-	if root == "" {
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
-		}
-	}
-	args := strings.Fields(task)
-	if len(args) == 0 {
-		return fmt.Errorf("install task cannot be empty")
-	}
-	cobraCmd.Printf("Running %s %s to install Android release benchmark build...\n", gradle, strings.Join(args, " "))
-	cmd := exec.CommandContext(ctx, gradle, args...)
-	cmd.Dir = root
-	cmd.Stdout = cobraCmd.OutOrStdout()
-	cmd.Stderr = cobraCmd.ErrOrStderr()
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gradle install failed: %w", err)
-	}
-	return nil
-}
-
-func defaultAndroidInstallTask(proj *preflight.AndroidProject) string {
-	if proj == nil {
-		return ""
-	}
-	module := strings.TrimSpace(proj.ModuleDir)
-	if module == "" {
-		return "installRelease"
-	}
-	module = filepath.ToSlash(module)
-	module = strings.Trim(module, "/")
-	if module == "" {
-		return "installRelease"
-	}
-	module = strings.ReplaceAll(module, "/", ":")
-	return fmt.Sprintf(":%s:installRelease", module)
 }
 
 type checklistStatus int

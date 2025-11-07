@@ -22,7 +22,7 @@ brew install designbench --HEAD
 | Command | Purpose | Key flags |
 | --- | --- | --- |
 | `designbench preflight` | PASS/WARN/FAIL checklist for tooling (adb/xcodebuild/xcrun), project manifests, and attached devices. | *(none – everything auto-detected)* |
-| `designbench android` | Runs Compose benchmark via `adb shell am start -W`, captures launch + CPU/memory metrics, saves JSON. | `--view`, `--component`, `--install` |
+| `designbench android` | Runs Compose benchmark via `adb shell am start -W`, captures launch + CPU/memory metrics, saves JSON. | `--view`, `--component` |
 | `designbench ios` | Runs SwiftUI benchmark using `xcrun simctl launch`, captures render + CPU/memory metrics, saves JSON. | `--view`, `--component` |
 
 `--view` labels the UI under test, while `--component` controls the report filename token. Package/activity and bundle identifiers are inferred from `AndroidManifest.xml` and `Info.plist` when you run commands from the project root.
