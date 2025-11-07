@@ -82,5 +82,3 @@ The data is CI-friendly and can be diffed against baselines for regressions.
 3. Uses `scripts/mock-adb.sh` to run a smoke `designbench android` invocation without physical hardware, writing JSON via `--output` for CI artifacts.
 
 Use it as a template—swap the mock bridge for a real device lab when available.
-
-`.github/workflows/release.yml` runs whenever a `v*` tag is pushed. It builds tarballs for Linux and macOS (amd64/arm64), generates checksums, and publishes a GitHub release so the Homebrew formula can track stable versions.
