@@ -29,4 +29,5 @@ jobs:
           cp scripts/mock-adb.sh fake-sdk/adb
           chmod +x fake-sdk/adb
           export PATH="$PWD/fake-sdk:$PATH"
-          ./designbench android --component CIView --view CIView --reports-dir ci-reports
+          mkdir -p ci-reports
+          ./designbench android --component CIView --view CIView --output ci-reports/ci-android.json
