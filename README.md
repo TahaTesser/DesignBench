@@ -2,29 +2,56 @@
   <img src="./docs/DesignBench.png" alt="DesignBench Logo" width="200" />
 </p>
 
-DesignBench is a Go CLI that benchmarks initial UI render performance for Kotlin Multiplatform projects across Android (Compose) and iOS (SwiftUI).
+# DesignBench
+
+DesignBench is a Go CLI that runs cross-platform UI render benchmarks for Kotlin Multiplatform apps. It orchestrates Android Compose and iOS SwiftUI targets, records render/system metrics, and emits JSON reports for CI.
 
 ## Install
 
-```sh
-go install github.com/tahatesser/designbench/cmd/designbench@latest
-```
-
-Ensure the install location (usually `$HOME/go/bin`) is on your `PATH`.
-
-## Run Benchmarks
-
-- `designbench android` — run Compose benchmarks via `adb`.
-- `designbench ios` — run SwiftUI benchmarks via `xcodebuild`.
-- `designbench preflight` — detect project metadata and connected devices.
-
-Run Android and iOS sequentially by invoking each command:
+**Homebrew (macOS/Linux):**
 
 ```sh
-designbench android --component ScreenX --package com.example.app --activity .BenchmarkActivity
-designbench ios --component ScreenX --bundle com.example.app
+brew tap tahatesser/designbench https://github.com/tahatesser/designbench.git
+brew install designbench          # installs the latest tagged release
+# or install straight from `main`
+brew install designbench --HEAD
 ```
+
+## Core Commands
+
+| Command | Purpose | Key flags |
+| --- | --- | --- |
+| `designbench preflight` | PASS/WARN/FAIL checklist for tooling (adb/xcodebuild/xcrun), project manifests, and attached devices. | *(none – everything auto-detected)* |
+| `designbench android` | Runs Compose benchmark via `adb shell am start -W`, captures launch + CPU/memory metrics, saves JSON. | `--view`, `--component`, `--install` |
+| `designbench ios` | Runs SwiftUI benchmark using `xcrun simctl launch`, captures render + CPU/memory metrics, saves JSON. | `--view`, `--component` |
+
+`--view` labels the UI under test, while `--component` controls the report filename token. Package/activity and bundle identifiers are inferred from `AndroidManifest.xml` and `Info.plist` when you run commands from the project root.
+
+## Typical Flow
+
+1. `designbench preflight` – confirm tools, manifests, and devices are ready.
+2. `designbench android --view ScreenX --component ScreenX --install` – optional `--install` runs the detected Gradle `installRelease` task before benchmarking.
+3. `designbench ios --view ScreenX --component ScreenX` – targets the first booted simulator automatically.
+
+Both platform commands write JSON to `designbench-reports/` (override with `--reports-dir` or `--output`) and print a terminal summary that includes launch timings, CPU%, CPU time, memory usage, and device metadata.
 
 ## Reports
 
-Results are written to `designbench-reports/` in JSON and echoed as a terminal summary, including render timings, memory usage, and CPU load/time. Use `--output` or `--reports-dir` to customize filenames and locations.
+Each report stores:
+- component label and CLI invocation
+- render metrics (`FirstFrameMs`, `TotalTimeMs`, `RenderTimeMs`)
+- system metrics (memory MB, CPU %, CPU time)
+- timestamp and device details (model/OS/resolution or simulator name/runtime)
+
+The data is CI-friendly and can be diffed against baselines for regressions.
+
+## CI Support
+
+`.github/workflows/android-ci.yml` defines a GitHub Actions job that:
+1. Runs `go test ./...`.
+2. Builds the CLI.
+3. Uses `scripts/mock-adb.sh` to run a smoke `designbench android` invocation without physical hardware.
+
+Use it as a template—swap the mock bridge for a real device lab when available.
+
+`.github/workflows/release.yml` runs whenever a `v*` tag is pushed. It builds tarballs for Linux and macOS (amd64/arm64), generates checksums, and publishes a GitHub release so the Homebrew formula can track stable versions.

@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in "darwin amd64" "darwin arm64" "linux amd64"; do
+            read -r GOOS GOARCH <<<"$target"
+            OUT="designbench-${GOOS}-${GOARCH}"
+            mkdir -p "dist/${OUT}"
+            GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 \
+              go build -ldflags "-s -w" -o "dist/${OUT}/designbench" ./cmd/designbench
+            tar -czf "dist/${OUT}.tar.gz" -C "dist/${OUT}" designbench
+            rm -rf "dist/${OUT}"
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          shasum -a 256 *.tar.gz > checksums.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

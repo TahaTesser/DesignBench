@@ -1,0 +1,32 @@
+name: Android CLI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  android-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build designbench CLI
+        run: go build -o designbench ./cmd/designbench
+
+      - name: Run designbench android smoke test
+        run: |
+          chmod +x scripts/mock-adb.sh
+          mkdir -p fake-sdk
+          cp scripts/mock-adb.sh fake-sdk/adb
+          chmod +x fake-sdk/adb
+          export PATH="$PWD/fake-sdk:$PATH"
+          ./designbench android --component CIView --view CIView --reports-dir ci-reports

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 var (
 	componentFlag string
+	viewFlag      string
 	outputPath    string
 	timeoutFlag   string
 	reportsDir    string
@@ -41,6 +43,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVar(&componentFlag, "component", "", "Component name label for the benchmark run.")
+	cmd.PersistentFlags().StringVar(&viewFlag, "view", "", "UI view identifier forwarded to benchmark harnesses on each platform.")
 	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Override JSON output file name (defaults to auto-generated under reports-dir).")
 	cmd.PersistentFlags().StringVar(&timeoutFlag, "timeout", "60s", "Overall command timeout (e.g. 45s, 2m).")
 	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", defaultReportsDir, "Directory where JSON reports are written.")
@@ -51,68 +54,34 @@ func newRootCmd() *cobra.Command {
 }
 
 type androidOptions struct {
-	packageName        string
-	activity           string
-	deviceID           string
-	adbPath            string
-	launchArgs         []string
-	benchmarkComponent string
-}
-
-func (opts *androidOptions) bind(cmd *cobra.Command, prefix string) {
-	nameFlag := prefix + "package"
-	cmd.Flags().StringVarP(&opts.packageName, nameFlag, "p", "", "Android application package name.")
-	cmd.MarkFlagRequired(nameFlag) // nolint:errcheck
-
-	activityFlag := prefix + "activity"
-	cmd.Flags().StringVarP(&opts.activity, activityFlag, "a", "", "Android activity to launch (e.g. .MainActivity).")
-	cmd.MarkFlagRequired(activityFlag) // nolint:errcheck
-
-	deviceFlag := prefix + "device"
-	cmd.Flags().StringVar(&opts.deviceID, deviceFlag, "", "Target Android device serial (defaults to adb default).")
-
-	adbFlag := prefix + "adb"
-	cmd.Flags().StringVar(&opts.adbPath, adbFlag, "adb", "Path to the adb executable.")
-
-	launchArgsFlag := prefix + "launch-args"
-	cmd.Flags().StringSliceVar(&opts.launchArgs, launchArgsFlag, nil, "Additional arguments forwarded to `am start`.")
-
-	benchmarkComponentFlag := prefix + "benchmark-component"
-	cmd.Flags().StringVar(&opts.benchmarkComponent, benchmarkComponentFlag, "", "Compose component identifier to benchmark (forwarded as an extra to `am start`).")
+	packageName     string
+	activity        string
+	deviceID        string
+	adbPath         string
+	install         bool
+	gradlePath      string
+	installTask     string
+	projectRoot     string
+	detectedProject *preflight.AndroidProject
 }
 
 type iosOptions struct {
-	bundleID           string
-	deviceID           string
-	xcrunPath          string
-	launchArgs         []string
-	benchmarkComponent string
-}
-
-func (opts *iosOptions) bind(cmd *cobra.Command, prefix string) {
-	bundleFlag := prefix + "bundle"
-	cmd.Flags().StringVarP(&opts.bundleID, bundleFlag, "b", "", "iOS bundle identifier to launch.")
-	cmd.MarkFlagRequired(bundleFlag) // nolint:errcheck
-
-	deviceFlag := prefix + "device"
-	cmd.Flags().StringVar(&opts.deviceID, deviceFlag, "", "Simulator/Device UDID. Defaults to first booted simulator.")
-
-	xcrunFlag := prefix + "xcrun"
-	cmd.Flags().StringVar(&opts.xcrunPath, xcrunFlag, "xcrun", "Path to the xcrun executable.")
-
-	launchArgsFlag := prefix + "launch-args"
-	cmd.Flags().StringSliceVar(&opts.launchArgs, launchArgsFlag, nil, "Extra arguments forwarded to `simctl launch`.")
-
-	benchmarkComponentFlag := prefix + "benchmark-component"
-	cmd.Flags().StringVar(&opts.benchmarkComponent, benchmarkComponentFlag, "", "SwiftUI component identifier to benchmark (forwarded via simulator environment).")
+	bundleID  string
+	deviceID  string
+	xcrunPath string
 }
 
 func newAndroidCmd() *cobra.Command {
 	var opts androidOptions
+	opts.adbPath = "adb"
+	opts.gradlePath = "./gradlew"
 	cmd := &cobra.Command{
 		Use:   "android",
 		Short: "Run Android render benchmark.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureAndroidDefaults(&opts); err != nil {
+				return err
+			}
 			component := resolveComponent(opts.activity)
 			ctx, cancel, err := commandContext(cmd)
 			if err != nil {
@@ -120,14 +89,22 @@ func newAndroidCmd() *cobra.Command {
 			}
 			defer cancel()
 
+			benchmarkComponent := viewFlag
+
+			if opts.install {
+				if err := runAndroidInstall(ctx, cmd, &opts); err != nil {
+					return err
+				}
+			}
+
 			cfg := android.Config{
 				Component:          component,
 				Package:            opts.packageName,
 				Activity:           opts.activity,
 				DeviceID:           opts.deviceID,
 				ADBPath:            opts.adbPath,
-				LaunchArgs:         opts.launchArgs,
-				BenchmarkComponent: opts.benchmarkComponent,
+				LaunchArgs:         nil,
+				BenchmarkComponent: benchmarkComponent,
 			}
 			metrics, err := android.Run(ctx, cfg)
 			if err != nil {
@@ -150,16 +127,20 @@ func newAndroidCmd() *cobra.Command {
 			return nil
 		},
 	}
-	opts.bind(cmd, "")
+	cmd.Flags().BoolVar(&opts.install, "install", false, "Run the detected Gradle installRelease task before benchmarking.")
 	return cmd
 }
 
 func newIOSCmd() *cobra.Command {
 	var opts iosOptions
+	opts.xcrunPath = "xcrun"
 	cmd := &cobra.Command{
 		Use:   "ios",
 		Short: "Run iOS render benchmark.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureIOSDefaults(&opts); err != nil {
+				return err
+			}
 			component := resolveComponent(opts.bundleID)
 			ctx, cancel, err := commandContext(cmd)
 			if err != nil {
@@ -167,13 +148,15 @@ func newIOSCmd() *cobra.Command {
 			}
 			defer cancel()
 
+			benchmarkComponent := viewFlag
+
 			cfg := ios.Config{
 				Component:          component,
 				BundleID:           opts.bundleID,
 				DeviceID:           opts.deviceID,
-				LaunchArgs:         opts.launchArgs,
+				LaunchArgs:         nil,
 				XCRunPath:          opts.xcrunPath,
-				BenchmarkComponent: opts.benchmarkComponent,
+				BenchmarkComponent: benchmarkComponent,
 			}
 			metrics, err := ios.Run(ctx, cfg)
 			if err != nil {
@@ -196,13 +179,77 @@ func newIOSCmd() *cobra.Command {
 			return nil
 		},
 	}
-	opts.bind(cmd, "")
 	return cmd
+}
+
+func ensureAndroidDefaults(opts *androidOptions) error {
+	root, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve project root: %w", err)
+	}
+	absRoot, err := filepath.Abs(root)
+	if err == nil {
+		root = absRoot
+	}
+	opts.projectRoot = root
+	proj, detectErr := preflight.DetectAndroidProject(root)
+	if detectErr == nil {
+		opts.detectedProject = proj
+	}
+	missingPackage := strings.TrimSpace(opts.packageName) == ""
+	missingActivity := strings.TrimSpace(opts.activity) == ""
+	if !missingPackage && !missingActivity {
+		return nil
+	}
+	if detectErr == nil && proj != nil {
+		if missingPackage && proj.Package != "" {
+			opts.packageName = proj.Package
+		}
+		if missingActivity && proj.Activity != "" {
+			opts.activity = proj.Activity
+		}
+	}
+	if strings.TrimSpace(opts.packageName) != "" && strings.TrimSpace(opts.activity) != "" {
+		return nil
+	}
+	if detectErr != nil {
+		return fmt.Errorf("unable to auto-detect Android defaults: %w (set --package/--activity manually)", detectErr)
+	}
+	missing := make([]string, 0, 2)
+	if strings.TrimSpace(opts.packageName) == "" {
+		missing = append(missing, "--package")
+	}
+	if strings.TrimSpace(opts.activity) == "" {
+		missing = append(missing, "--activity")
+	}
+	return fmt.Errorf("missing Android %s (run from project root or provide flags)", strings.Join(missing, " and "))
+}
+
+func ensureIOSDefaults(opts *iosOptions) error {
+	if strings.TrimSpace(opts.bundleID) != "" {
+		return nil
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve project root: %w", err)
+	}
+	proj, detectErr := preflight.DetectIOSProject(root)
+	if detectErr != nil {
+		return fmt.Errorf("unable to auto-detect iOS bundle id: %w (set --bundle manually)", detectErr)
+	}
+	if proj == nil || strings.TrimSpace(proj.BundleID) == "" {
+		return fmt.Errorf("Info.plist detected but bundle id empty (set --bundle manually)")
+	}
+	opts.bundleID = proj.BundleID
+	return nil
 }
 
 func resolveComponent(fallback string) string {
 	if componentFlag != "" {
 		return componentFlag
+	}
+	if viewFlag != "" {
+		return viewFlag
 	}
 	if fallback != "" {
 		return fallback
@@ -319,15 +366,13 @@ func sanitizeToken(value string, fallback string) string {
 }
 
 func newPreflightCmd() *cobra.Command {
-	var (
-		rootDir   string
-		adbPath   string
-		xcrunPath string
-	)
+	rootDir := "."
+	adbPath := "adb"
+	xcrunPath := "xcrun"
 
 	cmd := &cobra.Command{
 		Use:   "preflight",
-		Short: "Inspect project and connected devices to suggest ready-to-run commands.",
+		Short: "Run a readiness checklist for Android and iOS benchmarking.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if rootDir == "" {
 				rootDir = "."
@@ -345,142 +390,195 @@ func newPreflightCmd() *cobra.Command {
 
 			out := cmd.OutOrStdout()
 
-			fmt.Fprintf(out, "Preflight (root: %s)\n\n", absRoot)
-
 			androidProj, androidProjErr := preflight.DetectAndroidProject(absRoot)
-			fmt.Fprintln(out, "Android:")
-			if androidProj != nil {
-				if androidProj.Package != "" {
-					fmt.Fprintf(out, "  Package: %s\n", androidProj.Package)
-				} else {
-					fmt.Fprintln(out, "  Package: (not detected)")
-				}
-				activity := androidProj.Activity
-				if activity == "" {
-					activity = "<android-activity>"
-				}
-				fmt.Fprintf(out, "  Activity: %s\n", activity)
-				if androidProj.ManifestPath != "" {
-					fmt.Fprintf(out, "  Manifest: %s\n", androidProj.ManifestPath)
-				}
-				for _, warning := range androidProj.Warnings {
-					fmt.Fprintf(out, "  ! %s\n", warning)
-				}
-			} else {
-				fmt.Fprintln(out, "  Project: (not detected)")
-			}
-			if androidProjErr != nil {
-				fmt.Fprintf(out, "  Note: %v\n", androidProjErr)
-			}
-
 			androidDevice, androidDeviceErr := preflight.DetectAndroidDevice(ctx, adbPath)
-			if androidDeviceErr != nil {
-				fmt.Fprintf(out, "  Device: %v\n", androidDeviceErr)
-			} else {
-				description := androidDevice.ID
-				if androidDevice.Model != "" {
-					description = fmt.Sprintf("%s (%s)", androidDevice.ID, androidDevice.Model)
-				}
-				fmt.Fprintf(out, "  Device: %s\n", description)
-			}
-
-			fmt.Fprintln(out, "\niOS:")
 			iosProj, iosProjErr := preflight.DetectIOSProject(absRoot)
-			if iosProjErr != nil {
-				fmt.Fprintf(out, "  Project: %v\n", iosProjErr)
-			} else {
-				if iosProj.BundleID != "" {
-					fmt.Fprintf(out, "  Bundle: %s\n", iosProj.BundleID)
-				}
-				if iosProj.InfoPlistPath != "" {
-					fmt.Fprintf(out, "  Info.plist: %s\n", iosProj.InfoPlistPath)
-				}
-			}
-
 			iosDevice, iosDeviceErr := preflight.DetectIOSDevice(ctx, xcrunPath)
-			if iosDeviceErr != nil {
-				fmt.Fprintf(out, "  Device: %v\n", iosDeviceErr)
-			} else {
-				description := iosDevice.UDID
-				if iosDevice.Name != "" {
-					description = fmt.Sprintf("%s (%s)", iosDevice.UDID, iosDevice.Name)
-				}
-				fmt.Fprintf(out, "  Device: %s\n", description)
-				if iosDevice.Runtime != "" {
-					fmt.Fprintf(out, "  Runtime: %s\n", iosDevice.Runtime)
-				}
+
+			items := []checklistItem{
+				checkBinaryItem("adb available", adbPath),
+				checkBinaryItem("xcodebuild available", "xcodebuild"),
+				checkBinaryItem("xcrun available", xcrunPath),
+				checkAndroidProjectItem(androidProj, androidProjErr),
+				checkAndroidDeviceItem(androidDevice, androidDeviceErr),
+				checkIOSProjectItem(iosProj, iosProjErr),
+				checkIOSDeviceItem(iosDevice, iosDeviceErr),
 			}
 
-			fmt.Fprintln(out)
-			printPreflightSuggestions(out, androidProj, androidDevice, iosProj, iosDevice)
+			fmt.Fprintf(out, "Preflight checklist (root: %s)\n\n", absRoot)
+			printChecklist(out, items)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&rootDir, "root", ".", "Project root to scan for configuration files.")
-	cmd.Flags().StringVar(&adbPath, "android-adb", "adb", "Path to the adb binary for device detection.")
-	cmd.Flags().StringVar(&xcrunPath, "ios-xcrun", "xcrun", "Path to the xcrun binary for simulator detection.")
 	return cmd
 }
 
-func printPreflightSuggestions(out io.Writer,
-	androidProj *preflight.AndroidProject,
-	androidDevice *preflight.AndroidDevice,
-	iosProj *preflight.IOSProject,
-	iosDevice *preflight.IOSDevice,
-) {
-	androidCmd := buildAndroidSuggestion(androidProj, androidDevice)
-	iosCmd := buildIOSSuggestion(iosProj, iosDevice)
-
-	if androidCmd == "" && iosCmd == "" {
-		fmt.Fprintln(out, "No ready-to-run command suggestions available.")
-		return
+func runAndroidInstall(ctx context.Context, cobraCmd *cobra.Command, opts *androidOptions) error {
+	gradle := strings.TrimSpace(opts.gradlePath)
+	if gradle == "" {
+		gradle = "./gradlew"
 	}
-
-	fmt.Fprintln(out, "Suggested commands:")
-	first := true
-	if androidCmd != "" {
-		fmt.Fprintf(out, "  Android:\n    %s\n", androidCmd)
-		first = false
+	task := strings.TrimSpace(opts.installTask)
+	if task == "" {
+		task = defaultAndroidInstallTask(opts.detectedProject)
 	}
-	if iosCmd != "" {
-		if !first {
-			fmt.Fprintln(out)
+	if task == "" {
+		return fmt.Errorf("unable to determine Gradle install task; provide --install-task")
+	}
+	root := opts.projectRoot
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
 		}
-		fmt.Fprintf(out, "  iOS:\n    %s\n", iosCmd)
+	}
+	args := strings.Fields(task)
+	if len(args) == 0 {
+		return fmt.Errorf("install task cannot be empty")
+	}
+	cobraCmd.Printf("Running %s %s to install Android release benchmark build...\n", gradle, strings.Join(args, " "))
+	cmd := exec.CommandContext(ctx, gradle, args...)
+	cmd.Dir = root
+	cmd.Stdout = cobraCmd.OutOrStdout()
+	cmd.Stderr = cobraCmd.ErrOrStderr()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gradle install failed: %w", err)
+	}
+	return nil
+}
+
+func defaultAndroidInstallTask(proj *preflight.AndroidProject) string {
+	if proj == nil {
+		return ""
+	}
+	module := strings.TrimSpace(proj.ModuleDir)
+	if module == "" {
+		return "installRelease"
+	}
+	module = filepath.ToSlash(module)
+	module = strings.Trim(module, "/")
+	if module == "" {
+		return "installRelease"
+	}
+	module = strings.ReplaceAll(module, "/", ":")
+	return fmt.Sprintf(":%s:installRelease", module)
+}
+
+type checklistStatus int
+
+const (
+	statusPass checklistStatus = iota
+	statusWarn
+	statusFail
+)
+
+func (s checklistStatus) label() string {
+	switch s {
+	case statusPass:
+		return "PASS"
+	case statusWarn:
+		return "WARN"
+	case statusFail:
+		return "FAIL"
+	default:
+		return "????"
 	}
 }
 
-func buildAndroidSuggestion(proj *preflight.AndroidProject, device *preflight.AndroidDevice) string {
-	if proj == nil && device == nil {
-		return ""
-	}
-	pkg := "<android-package>"
-	if proj != nil && proj.Package != "" {
-		pkg = proj.Package
-	}
-	activity := "<android-activity>"
-	if proj != nil && proj.Activity != "" {
-		activity = proj.Activity
-	}
-	cmd := []string{"designbench", "android", "-p", pkg, "-a", activity}
-	if device != nil && device.ID != "" {
-		cmd = append(cmd, "--device", device.ID)
-	}
-	return strings.Join(cmd, " ")
+type checklistItem struct {
+	name   string
+	status checklistStatus
+	notes  []string
 }
 
-func buildIOSSuggestion(proj *preflight.IOSProject, device *preflight.IOSDevice) string {
-	if proj == nil && device == nil {
-		return ""
+func newChecklistItem(name string, status checklistStatus, notes ...string) checklistItem {
+	return checklistItem{name: name, status: status, notes: notes}
+}
+
+func printChecklist(out io.Writer, items []checklistItem) {
+	for _, item := range items {
+		fmt.Fprintf(out, "[%s] %s\n", item.status.label(), item.name)
+		for _, note := range item.notes {
+			fmt.Fprintf(out, "    - %s\n", note)
+		}
 	}
-	bundle := "<ios-bundle>"
-	if proj != nil && proj.BundleID != "" {
-		bundle = proj.BundleID
+}
+
+func checkBinaryItem(label, path string) checklistItem {
+	if strings.TrimSpace(path) == "" {
+		return newChecklistItem(label, statusFail, "no path configured")
 	}
-	cmd := []string{"designbench", "ios", "-b", bundle}
-	if device != nil && device.UDID != "" {
-		cmd = append(cmd, "--device", device.UDID)
+	resolved, err := exec.LookPath(path)
+	if err != nil {
+		return newChecklistItem(label, statusFail, err.Error())
 	}
-	return strings.Join(cmd, " ")
+	return newChecklistItem(label, statusPass, fmt.Sprintf("path: %s", resolved))
+}
+
+func checkAndroidProjectItem(proj *preflight.AndroidProject, err error) checklistItem {
+	if err != nil {
+		return newChecklistItem("Android project", statusFail, err.Error())
+	}
+	if proj == nil {
+		return newChecklistItem("Android project", statusWarn, "AndroidManifest.xml not found (run from project root?)")
+	}
+	notes := make([]string, 0, 3)
+	if proj.Package != "" {
+		notes = append(notes, fmt.Sprintf("Package: %s", proj.Package))
+	}
+	if proj.Activity != "" {
+		notes = append(notes, fmt.Sprintf("Activity: %s", proj.Activity))
+	}
+	if proj.ModuleDir != "" {
+		notes = append(notes, fmt.Sprintf("Gradle module: %s", proj.ModuleDir))
+	}
+	return newChecklistItem("Android project", statusPass, notes...)
+}
+
+func checkAndroidDeviceItem(device *preflight.AndroidDevice, err error) checklistItem {
+	if err != nil {
+		return newChecklistItem("Android device detected", statusFail, err.Error())
+	}
+	if device == nil {
+		return newChecklistItem("Android device detected", statusWarn, "No devices reported by `adb devices -l`.")
+	}
+	desc := device.ID
+	if device.Model != "" {
+		desc = fmt.Sprintf("%s (%s)", device.ID, device.Model)
+	}
+	return newChecklistItem("Android device detected", statusPass, desc)
+}
+
+func checkIOSProjectItem(proj *preflight.IOSProject, err error) checklistItem {
+	if err != nil {
+		return newChecklistItem("iOS project", statusFail, err.Error())
+	}
+	if proj == nil {
+		return newChecklistItem("iOS project", statusWarn, "Info.plist not found")
+	}
+	notes := make([]string, 0, 2)
+	if proj.BundleID != "" {
+		notes = append(notes, fmt.Sprintf("Bundle ID: %s", proj.BundleID))
+	}
+	if proj.InfoPlistPath != "" {
+		notes = append(notes, fmt.Sprintf("Info.plist: %s", proj.InfoPlistPath))
+	}
+	return newChecklistItem("iOS project", statusPass, notes...)
+}
+
+func checkIOSDeviceItem(device *preflight.IOSDevice, err error) checklistItem {
+	if err != nil {
+		return newChecklistItem("iOS device detected", statusFail, err.Error())
+	}
+	if device == nil {
+		return newChecklistItem("iOS device detected", statusWarn, "No booted simulator or connected device reported by xcrun.")
+	}
+	desc := device.UDID
+	if device.Name != "" {
+		desc = fmt.Sprintf("%s (%s)", device.UDID, device.Name)
+	}
+	if device.Runtime != "" {
+		desc = fmt.Sprintf("%s – %s", desc, device.Runtime)
+	}
+	return newChecklistItem("iOS device detected", statusPass, desc)
 }

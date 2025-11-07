@@ -31,6 +31,7 @@ type AndroidProject struct {
 	Package      string
 	Activity     string
 	ManifestPath string
+	ModuleDir    string
 	Warnings     []string
 }
 
@@ -64,6 +65,11 @@ type IOSDevice struct {
 
 // DetectAndroidProject attempts to locate an AndroidManifest.xml and extract the package and main activity.
 func DetectAndroidProject(root string) (*AndroidProject, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve android root: %w", err)
+	}
+	root = absRoot
 	paths := []string{
 		"androidApp/src/main/AndroidManifest.xml",
 		"androidApp/src/androidMain/AndroidManifest.xml",
@@ -73,13 +79,13 @@ func DetectAndroidProject(root string) (*AndroidProject, error) {
 	for _, rel := range paths {
 		path := filepath.Join(root, rel)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return loadAndroidProject(path)
+			return loadAndroidProject(path, root)
 		}
 	}
 
 	var manifestPath string
 	stopErr := errors.New("designbench:found-manifest")
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -98,16 +104,16 @@ func DetectAndroidProject(root string) (*AndroidProject, error) {
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, stopErr) && err != filepath.SkipDir {
-		return nil, err
+	if walkErr != nil && !errors.Is(walkErr, stopErr) && walkErr != filepath.SkipDir {
+		return nil, walkErr
 	}
 	if manifestPath != "" {
-		return loadAndroidProject(manifestPath)
+		return loadAndroidProject(manifestPath, root)
 	}
 	return nil, fmt.Errorf("android manifest not found")
 }
 
-func loadAndroidProject(path string) (*AndroidProject, error) {
+func loadAndroidProject(path, root string) (*AndroidProject, error) {
 	project, err := parseAndroidManifest(path)
 	if err != nil && !errors.Is(err, errManifestPackageMissing) {
 		return nil, err
@@ -115,6 +121,7 @@ func loadAndroidProject(path string) (*AndroidProject, error) {
 	if project == nil {
 		project = &AndroidProject{ManifestPath: path}
 	}
+	project.ModuleDir = resolveGradleModuleDir(path, root)
 	if project.Package == "" {
 		if pkg := derivePackageFromGradle(path); pkg != "" {
 			project.Package = pkg
@@ -261,6 +268,54 @@ func derivePackageFromGradle(manifestPath string) string {
 		visited++
 	}
 	return ""
+}
+
+func resolveGradleModuleDir(manifestPath, root string) string {
+	root = filepath.Clean(root)
+	infoRoot := root
+	if infoRoot == "" {
+		if abs, err := filepath.Abs("."); err == nil {
+			infoRoot = abs
+		}
+	}
+	dir := filepath.Dir(manifestPath)
+	for {
+		if hasGradleBuildFile(dir) {
+			rel, err := filepath.Rel(infoRoot, dir)
+			if err == nil {
+				if rel == "." {
+					return ""
+				}
+				return rel
+			}
+			return dir
+		}
+		if dir == infoRoot {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	if hasGradleBuildFile(infoRoot) {
+		return ""
+	}
+	return ""
+}
+
+func hasGradleBuildFile(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+		path := filepath.Join(dir, name)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func parseNamespaceFromGradle(content string) string {
