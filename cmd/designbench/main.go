@@ -23,7 +23,6 @@ var (
 	viewFlag      string
 	outputPath    string
 	timeoutFlag   string
-	reportsDir    string
 )
 
 const defaultReportsDir = "designbench-reports"
@@ -44,9 +43,8 @@ func newRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVar(&componentFlag, "component", "", "Component name label for the benchmark run.")
 	cmd.PersistentFlags().StringVar(&viewFlag, "view", "", "UI view identifier forwarded to benchmark harnesses on each platform.")
-	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Override JSON output file name (defaults to auto-generated under reports-dir).")
+	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "Write JSON report to this exact path (defaults to ./designbench-reports/<component>-<platform>.json).")
 	cmd.PersistentFlags().StringVar(&timeoutFlag, "timeout", "60s", "Overall command timeout (e.g. 45s, 2m).")
-	cmd.PersistentFlags().StringVar(&reportsDir, "reports-dir", defaultReportsDir, "Directory where JSON reports are written.")
 
 	cmd.AddCommand(newAndroidCmd(), newIOSCmd(), newPreflightCmd())
 
@@ -282,26 +280,18 @@ func commandContext(cmd *cobra.Command) (context.Context, context.CancelFunc, er
 func resolveOutputFile(component string, platform string) (string, error) {
 	path := strings.TrimSpace(outputPath)
 	if path == "" {
-		dir := strings.TrimSpace(reportsDir)
-		if dir == "" {
-			dir = defaultReportsDir
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(defaultReportsDir, 0o755); err != nil {
 			return "", fmt.Errorf("create reports dir: %w", err)
 		}
 		filename := defaultReportFileName(component, platform)
-		return filepath.Join(dir, filename), nil
+		return filepath.Join(defaultReportsDir, filename), nil
 	}
 
 	if !filepath.IsAbs(path) {
-		dir := strings.TrimSpace(reportsDir)
-		if dir == "" {
-			dir = defaultReportsDir
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(defaultReportsDir, 0o755); err != nil {
 			return "", fmt.Errorf("create reports dir: %w", err)
 		}
-		path = filepath.Join(dir, path)
+		path = filepath.Join(defaultReportsDir, path)
 	} else {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

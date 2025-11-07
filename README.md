@@ -30,10 +30,11 @@ brew install designbench --HEAD
 ## Typical Flow
 
 1. `designbench preflight` – confirm tools, manifests, and devices are ready.
-2. `designbench android --view ScreenX --component ScreenX --install` – optional `--install` runs the detected Gradle `installRelease` task before benchmarking.
-3. `designbench ios --view ScreenX --component ScreenX` – targets the first booted simulator automatically.
+2. Build and install the KMP app on Android (via Gradle) and iOS (via Xcode).
+3. `designbench android --view ScreenX --component ScreenX`
+4. `designbench ios --view ScreenX --component ScreenX`
 
-Both platform commands write JSON to `designbench-reports/` (override with `--reports-dir` or `--output`) and print a terminal summary that includes launch timings, CPU%, CPU time, memory usage, and device metadata.
+Both platform commands write JSON to `designbench-reports/` (override with `--output`) and print a terminal summary that includes launch timings, CPU%, CPU time, memory usage, and device metadata.
 
 ## Reports
 
@@ -50,7 +51,7 @@ The data is CI-friendly and can be diffed against baselines for regressions.
 `.github/workflows/android-ci.yml` defines a GitHub Actions job that:
 1. Runs `go test ./...`.
 2. Builds the CLI.
-3. Uses `scripts/mock-adb.sh` to run a smoke `designbench android` invocation without physical hardware.
+3. Uses `scripts/mock-adb.sh` to run a smoke `designbench android` invocation without physical hardware, writing JSON via `--output` for CI artifacts.
 
 Use it as a template—swap the mock bridge for a real device lab when available.
 
