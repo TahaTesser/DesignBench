@@ -46,6 +46,34 @@ Each report stores:
 
 The data is CI-friendly and can be diffed against baselines for regressions.
 
+## Example Report
+
+```json
+{
+  "component": "ScreenX",
+  "cliCommand": "designbench android --view ScreenX --component ScreenX --output reports/screenx-android.json",
+  "android": {
+    "component": "ScreenX",
+    "package": "com.example.app",
+    "activity": ".BenchmarkActivity",
+    "firstFrameMs": 8.1,
+    "totalTimeMs": 12.4,
+    "waitTimeMs": 14.0,
+    "memoryMB": 42.0,
+    "cpuPercent": 9.8,
+    "cpuTimeMs": 1500,
+    "device": {
+      "id": "FA6AX0301234",
+      "platform": "android",
+      "model": "Pixel 7",
+      "osVersion": "14",
+      "resolution": "1080x2400"
+    },
+    "timestamp": "2024-05-01T12:34:56Z"
+  }
+}
+```
+
 ## CI Support
 
 `.github/workflows/android-ci.yml` defines a GitHub Actions job that:
