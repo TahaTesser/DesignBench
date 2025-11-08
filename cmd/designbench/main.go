@@ -38,7 +38,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "designbench",
-		Short: "DesignBench benchmarks UI render performance across Android and iOS.",
+		Short: "designbench benchmarks UI render performance across Android and iOS.",
 	}
 
 	cmd.PersistentFlags().StringVar(&componentFlag, "component", "", "Component name label for the benchmark run.")

@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="./docs/DesignBench.png" alt="DesignBench Logo" width="200" />
+  <img src="./docs/designbench.png" alt="designbench Logo" width="200" />
 </p>
 
-# DesignBench
+# designbench
 
-DesignBench is a Go CLI that runs cross-platform UI render benchmarks for Kotlin Multiplatform apps. It orchestrates Android Compose and iOS SwiftUI targets, records render/system metrics, and emits JSON reports for CI.
+designbench is a Go CLI that runs cross-platform UI render benchmarks for Kotlin Multiplatform apps. It orchestrates Android Compose and iOS SwiftUI targets, records render/system metrics, and emits JSON reports for CI.
 
 ## Install
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the architecture, goals, and workflow for **DesignBench**, a **Go-based UI Performance Benchmarking CLI Tool** for Kotlin Multiplatform (KMP) codebases. DesignBench measures **static UI rendering performance** (initial render) and **system resource usage** (CPU, memory) across Android (Jetpack Compose) and iOS (SwiftUI) platforms. It supports both local and CI execution, with terminal summaries and JSON output for automated reporting.
+This document outlines the architecture, goals, and workflow for **designbench**, a **Go-based UI Performance Benchmarking CLI Tool** for Kotlin Multiplatform (KMP) codebases. designbench measures **static UI rendering performance** (initial render) and **system resource usage** (CPU, memory) across Android (Jetpack Compose) and iOS (SwiftUI) platforms. It supports both local and CI execution, with terminal summaries and JSON output for automated reporting.
 
 ---
 
@@ -39,7 +39,7 @@ This document outlines the architecture, goals, and workflow for **DesignBench**
 4. **Output:**
 
    * JSON report generated automatically (`androidx.benchmark.output.enable true`).
-   * Parsed and summarized by DesignBench.
+   * Parsed and summarized by designbench.
 
 ### Example Output
 
@@ -133,7 +133,7 @@ This document outlines the architecture, goals, and workflow for **DesignBench**
 ### Workflow
 
 1. Build benchmark targets.
-2. Run via DesignBench commands.
+2. Run via designbench commands.
 3. Collect JSON outputs as CI artifacts.
 4. Merge reports and detect regressions.
 
@@ -169,4 +169,4 @@ This document outlines the architecture, goals, and workflow for **DesignBench**
 
 ---
 
-> **DesignBench** provides a unified, automated, and extensible foundation for benchmarking UI performance across Android and iOS in a Kotlin Multiplatform project, powered by Go for robust orchestration and cross-platform automation.
+> **designbench** provides a unified, automated, and extensible foundation for benchmarking UI performance across Android and iOS in a Kotlin Multiplatform project, powered by Go for robust orchestration and cross-platform automation.

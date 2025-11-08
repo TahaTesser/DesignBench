@@ -10,6 +10,6 @@ class Designbench < Formula
   end
 
   test do
-    assert_match "DesignBench", shell_output("#{bin}/designbench --help")
+    assert_match "designbench", shell_output("#{bin}/designbench --help")
   end
 end
